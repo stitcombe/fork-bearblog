@@ -1,0 +1,106 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET=${SECRET}
+      - SALT=${SALT}
+      - DEBUG=${DEBUG:-False}
+      - DATABASE_URL=postgres://bearblog:${POSTGRES_PASSWORD}@db:5432/bearblog
+      - REDISCLOUD_URL=redis://redis:6379/0
+      - MAIN_SITE_HOSTS=${MAIN_SITE_HOSTS:-localhost,localhost:8000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost,http://localhost:8000}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      # Admin user (created on first run)
+      - DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-}
+      - DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-}
+      # Email configuration
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-True}
+      - EMAIL_USE_SSL=${EMAIL_USE_SSL:-False}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-Bear Blog <noreply@example.com>}
+      # Media storage
+      - MEDIA_STORAGE=${MEDIA_STORAGE:-local}
+      - MEDIA_URL=${MEDIA_URL:-/media/}
+      # Self-hosted mode
+      - SELF_HOSTED=True
+      # Optional integrations
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY:-}
+      - CLOUDFLARE_EMAIL=${CLOUDFLARE_EMAIL:-}
+      - CLOUDFLARE_ZONE_ID=${CLOUDFLARE_ZONE_ID:-}
+      - AKISMET_KEY=${AKISMET_KEY:-}
+      # S3 storage (only if MEDIA_STORAGE=s3)
+      - SPACES_ACCESS_KEY_ID=${SPACES_ACCESS_KEY_ID:-}
+      - SPACES_SECRET=${SPACES_SECRET:-}
+      - SPACES_BUCKET=${SPACES_BUCKET:-}
+      - SPACES_ENDPOINT=${SPACES_ENDPOINT:-}
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+      - ./geoip:/app/geoip:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ping/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=bearblog
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=bearblog
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bearblog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Optional: Uncomment to enable HTTPS with Caddy
+  # caddy:
+  #   image: caddy:2-alpine
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   environment:
+  #     - SITE_DOMAIN=${SITE_DOMAIN:-localhost}
+  #     - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+  #   volumes:
+  #     - ./Caddyfile.docker:/etc/caddy/Caddyfile
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #     - media_data:/app/media:ro
+  #     - static_data:/app/staticfiles:ro
+  #   depends_on:
+  #     - web
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
+  static_data:
+  # caddy_data:
+  # caddy_config:

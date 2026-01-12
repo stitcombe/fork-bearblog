@@ -183,7 +183,7 @@ def markdown(content, blog=None, post=None, tz=None):
         return ''
 
     # If not upgraded remove iframes and js
-    if not blog or not blog.user.settings.upgraded:
+    if not blog or not blog.user.settings.is_upgraded:
         processed_markup = clean(processed_markup)
 
     # Replace {{ xyz }} elements
@@ -276,7 +276,7 @@ def element_replacement(markup, blog, post=None, tz=None):
     if post:
         translation.activate(post.lang)
 
-    if blog.user.settings.upgraded:
+    if blog.user.settings.is_upgraded:
         markup = markup.replace('{{ email-signup }}', render_to_string('snippets/email_subscribe_form.html'))
         markup = markup.replace('{{ email_signup }}', render_to_string('snippets/email_subscribe_form.html'))
     else:
@@ -310,9 +310,13 @@ def element_replacement(markup, blog, post=None, tz=None):
             next_link = ""
             previous_link = ""
             if adjacent_posts['next_slug']:
-                next_link = f'<a class="next-post" href="/{adjacent_posts['next_slug']}" title="{escape(adjacent_posts['next_title'])}">Next</a>'
+                next_slug = adjacent_posts['next_slug']
+                next_title = escape(adjacent_posts['next_title'])
+                next_link = f'<a class="next-post" href="/{next_slug}" title="{next_title}">Next</a>'
             if adjacent_posts['previous_slug']:
-                previous_link = f'<a class="previous-post" href="/{adjacent_posts['previous_slug']}" title="{escape(adjacent_posts['previous_title'])}">Previous</a>'
+                prev_slug = adjacent_posts['previous_slug']
+                prev_title = escape(adjacent_posts['previous_title'])
+                previous_link = f'<a class="previous-post" href="/{prev_slug}" title="{prev_title}">Previous</a>'
             markup = markup.replace('{{ next_post }}', next_link)
             markup = markup.replace('{{ previous_post }}', previous_link)
 

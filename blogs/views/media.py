@@ -1,12 +1,13 @@
 from django.utils.text import slugify
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, Http404, FileResponse
 from django.http import StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.db.models import Q
+from django.conf import settings
 from zoneinfo import ZoneInfo
 
 import io
@@ -21,7 +22,33 @@ import threading
 
 from blogs.models import Blog, Media
 
-bucket_name = 'bear-images'
+# S3 bucket name - can be overridden via settings
+bucket_name = getattr(settings, 'SPACES_BUCKET', 'bear-images')
+
+
+def get_storage_backend():
+    """Return 'local' or 's3' based on configuration."""
+    return getattr(settings, 'MEDIA_STORAGE', 'local')
+
+
+def get_local_media_path(blog_subdomain, filename):
+    """Get the local filesystem path for a media file."""
+    return os.path.join(settings.MEDIA_ROOT, blog_subdomain, filename)
+
+
+def get_local_media_url(blog_subdomain, filename):
+    """Get the URL for a locally stored media file."""
+    return f"{settings.MEDIA_URL}{blog_subdomain}/{filename}"
+
+
+def save_file_locally(blog_subdomain, filename, file_data):
+    """Save file to local filesystem and return the URL."""
+    path = os.path.join(settings.MEDIA_ROOT, blog_subdomain)
+    os.makedirs(path, exist_ok=True)
+    filepath = os.path.join(path, filename)
+    with open(filepath, 'wb') as f:
+        f.write(file_data)
+    return get_local_media_url(blog_subdomain, filename)
 
 
 image_types = ['png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif', 'svg', 'webp', 'avif', 'ico', 'heic']
@@ -42,14 +69,14 @@ def media_center(request, id):
     else:
         blog = get_object_or_404(Blog, user=request.user, subdomain=id)
     
-    if not blog.user.settings.upgraded:
+    if not blog.user.settings.is_upgraded:
         return redirect('upgrade')
 
     error_messages = []
 
     # Upload media
     file_list = request.FILES.getlist('file')
-    if request.method == "POST" and file_list and blog.user.settings.upgraded is True:
+    if request.method == "POST" and file_list and blog.user.settings.is_upgraded is True:
         file_links = upload_files(blog, file_list)
         for link in file_links:
             if 'Error' in link:
@@ -90,7 +117,7 @@ def upload_image(request, id):
     else:
         blog = get_object_or_404(Blog, user=request.user, subdomain=id)
 
-    if request.method == "POST" and blog.user.settings.upgraded is True:
+    if request.method == "POST" and blog.user.settings.is_upgraded is True:
         file_list = request.FILES.getlist('file')
         optimise = True
         if request.POST.get('raw') == 'true':
@@ -142,24 +169,34 @@ def upload_files(blog, file_list, optimise=True):
             new_file_name = f"{file_name}-{count}"
         file_name = new_file_name
         
-        filepath = f'{blog.subdomain}/{file_name}.{extension}'
-        url = f'https://{bucket_name}.sfo2.cdn.digitaloceanspaces.com/{filepath}'
-        file_links.append(url)
+        filename = f'{file_name}.{extension}'
+        filepath = f'{blog.subdomain}/{filename}'
 
-        # Create Media object first
-        Media.objects.create(blog=blog, url=url)
-
-        # Read file data before starting thread
+        # Read file data
         file_data = file.read()
         content_type = file.content_type
 
-        # Move S3 upload to a thread
-        thread = threading.Thread(
-            target=upload_to_s3,
-            args=(filepath, file_data, content_type)
-        )
-        thread.start()
-    
+        # Store based on configured backend
+        storage_backend = get_storage_backend()
+
+        if storage_backend == 'local':
+            # Local filesystem storage
+            url = save_file_locally(blog.subdomain, filename, file_data)
+        else:
+            # S3 storage (default for production)
+            url = f'https://{bucket_name}.sfo2.cdn.digitaloceanspaces.com/{filepath}'
+            # Move S3 upload to a thread
+            thread = threading.Thread(
+                target=upload_to_s3,
+                args=(filepath, file_data, content_type)
+            )
+            thread.start()
+
+        file_links.append(url)
+
+        # Create Media object
+        Media.objects.create(blog=blog, url=url)
+
     return sorted(file_links)
 
 
@@ -285,47 +322,67 @@ def delete_selected_media(request, id):
         blog = get_object_or_404(Blog, subdomain=id)
     else:
         blog = get_object_or_404(Blog, user=request.user, subdomain=id)
-    
+
     if request.method == "POST":
         selected_media = request.POST.getlist('selected_media')
-        
-        session = boto3.session.Session()
-        client = session.client(
-            's3',
-            endpoint_url='https://sfo2.digitaloceanspaces.com',
-            region_name='sfo2',
-            aws_access_key_id=os.getenv('SPACES_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('SPACES_SECRET')
-        )
-        print(selected_media)
+        storage_backend = get_storage_backend()
+
+        # Only create S3 client if using S3 storage
+        s3_client = None
+        if storage_backend != 'local':
+            session = boto3.session.Session()
+            s3_client = session.client(
+                's3',
+                endpoint_url='https://sfo2.digitaloceanspaces.com',
+                region_name='sfo2',
+                aws_access_key_id=os.getenv('SPACES_ACCESS_KEY_ID'),
+                aws_secret_access_key=os.getenv('SPACES_SECRET')
+            )
+
         for url in selected_media:
-            print(url)
             if Media.objects.filter(blog=blog, url=url).exists():
-                key = url.replace(f'https://{bucket_name}.sfo2.cdn.digitaloceanspaces.com/', '')
-                print(f"Deleting key: {key}")
-                response = client.delete_object(Bucket=bucket_name, Key=key)
-                # print("S3 Response:", response)
+                if storage_backend == 'local':
+                    # Delete from local filesystem
+                    # Extract filename from URL (e.g., /media/subdomain/file.jpg -> subdomain/file.jpg)
+                    relative_path = url.replace(settings.MEDIA_URL, '')
+                    local_path = os.path.join(settings.MEDIA_ROOT, relative_path)
+                    if os.path.exists(local_path):
+                        os.remove(local_path)
+                        print(f"Deleted local file: {local_path}")
+                else:
+                    # Delete from S3
+                    key = url.replace(f'https://{bucket_name}.sfo2.cdn.digitaloceanspaces.com/', '')
+                    print(f"Deleting S3 key: {key}")
+                    s3_client.delete_object(Bucket=bucket_name, Key=key)
+
                 Media.objects.filter(blog=blog, url=url).delete()
             else:
                 return HttpResponseForbidden("Error: Attempted to delete unauthorized media")
 
-            
-        
     return redirect('media_center', id=id)
 
 
 def image_proxy(request, img):
+    storage_backend = get_storage_backend()
+
+    if storage_backend == 'local':
+        # Serve from local filesystem
+        local_path = os.path.join(settings.MEDIA_ROOT, img)
+        if os.path.exists(local_path):
+            return FileResponse(open(local_path, 'rb'))
+        raise Http404("Image not found")
+
     # Construct the DigitalOcean Spaces URL
     remote_url = f'https://{bucket_name}.sfo2.cdn.digitaloceanspaces.com/{img}'
-    
+
     # Stream the content from the remote URL
     response = requests.get(remote_url, stream=True, timeout=10)
-    
+
     # Define a generator to yield chunks of the response content
     def generate():
         for chunk in response.iter_content(chunk_size=8192):
             yield chunk
-    
+
     # Return a StreamingHttpResponse
     return StreamingHttpResponse(
         generate(),

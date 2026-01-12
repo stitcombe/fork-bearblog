@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+
+# Python bytecode
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+*.egg
+
+# Type checking and testing
+.mypy_cache
+.pytest_cache
+.coverage
+htmlcov
+.tox
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE and editor files
+.idea
+.vscode
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local development database
+dev.db
+*.sqlite3
+
+# Docker files (don't need to copy into build context)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation and plans
+*.md
+!requirements.txt
+.claude/
+
+# Temporary and log files
+tmp/
+temp/
+*.log
+logs/
+
+# Local static/media (managed via volumes)
+staticfiles/
+media/
+
+# Environment files
+.env*
+!.env.example
+
+# Heroku-specific (not needed for Docker)
+Procfile
+
+# Test files
+tests/
+test_*.py
+*_test.py

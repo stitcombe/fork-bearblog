@@ -269,7 +269,7 @@ def public_analytics(request):
     if not blog:
         return not_found(request)
 
-    if not blog or not blog.user.settings.upgraded or not blog.public_analytics:
+    if not blog or not blog.user.settings.is_upgraded or not blog.public_analytics:
         return not_found(request)
 
     return render_analytics(request, blog, True)

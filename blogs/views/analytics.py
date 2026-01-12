@@ -35,7 +35,7 @@ def analytics(request, id):
     else:
         blog = get_object_or_404(Blog, user=request.user, subdomain=id)
 
-    if blog.user.settings.upgraded:
+    if blog.user.settings.is_upgraded:
         return analytics_upgraded(request, id=id)
 
     time_threshold = False
@@ -85,7 +85,7 @@ def analytics_upgraded(request, id):
     else:
         blog = get_object_or_404(Blog, user=request.user, subdomain=id)
 
-    if not blog.user.settings.upgraded:
+    if not blog.user.settings.is_upgraded:
         return redirect('analytics', id=blog.subdomain)
 
     if request.GET.get('export', False):

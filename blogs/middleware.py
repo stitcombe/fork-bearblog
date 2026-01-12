@@ -228,7 +228,7 @@ class RateLimitMiddleware:
         return self.get_response(request)
 
 
-# Prevent clickjacking on root domiains
+# Prevent clickjacking on root domains
 class ConditionalXFrameOptionsMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -236,9 +236,11 @@ class ConditionalXFrameOptionsMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         host = request.get_host().lower()
-        main_domains = {'bearblog.dev', 'www.bearblog.dev', 'lh.co'}
-        
+        # Use configured main domains instead of hardcoded values
+        main_site_hosts = os.getenv('MAIN_SITE_HOSTS', 'localhost')
+        main_domains = set(h.strip().lower() for h in main_site_hosts.split(','))
+
         if host in main_domains:
             response['X-Frame-Options'] = 'DENY'
-        
+
         return response

@@ -8,6 +8,13 @@ load_dotenv()
 
 PROJECT_NAME = "🐼 BEARBLOG 🐼"
 
+# Self-hosted mode flag
+SELF_HOSTED = os.getenv('SELF_HOSTED', 'False').lower() == 'true'
+
+# Set default MAIN_SITE_HOSTS if not provided
+if not os.getenv('MAIN_SITE_HOSTS'):
+    os.environ['MAIN_SITE_HOSTS'] = 'localhost,localhost:8000'
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET')
@@ -15,8 +22,8 @@ LEMONSQUEEZY_SIGNATURE = os.getenv('LEMONSQUEEZY_SIGNATURE')
 
 DEBUG = (os.getenv('DEBUG') == 'True')
 
-if not DEBUG:
-    # Logging settings
+if not DEBUG and os.getenv("SENTRY_DSN"):
+    # Logging settings - only initialize Sentry if DSN is provided
     def before_send(event, hint):
         """Don't log django.DisallowedHost errors."""
         if 'log_record' in hint:
@@ -38,7 +45,13 @@ if not DEBUG:
 
 # Host & proxy settings
 ALLOWED_HOSTS = ['*']
-CSRF_TRUSTED_ORIGINS = ['https://*.bearblog.dev', 'https://bearblog.dev']
+
+# CSRF trusted origins - configurable for self-hosted deployments
+CSRF_TRUSTED_ORIGINS_ENV = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+if CSRF_TRUSTED_ORIGINS_ENV:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_ENV.split(',')]
+else:
+    CSRF_TRUSTED_ORIGINS = ['https://*.bearblog.dev', 'https://bearblog.dev']
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
@@ -204,18 +217,30 @@ GEOIP_PATH = "geoip/"
 # Enable WhiteNoise's GZip compression of static assets.
 STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 
+# Media storage configuration
+MEDIA_STORAGE = os.getenv('MEDIA_STORAGE', 'local')  # 'local' or 's3'
+MEDIA_URL = os.getenv('MEDIA_URL', '/media/')
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# S3/Spaces storage settings (only used if MEDIA_STORAGE='s3')
+SPACES_ACCESS_KEY_ID = os.getenv('SPACES_ACCESS_KEY_ID', '')
+SPACES_SECRET = os.getenv('SPACES_SECRET', '')
+SPACES_BUCKET = os.getenv('SPACES_BUCKET', 'bear-images')
+SPACES_ENDPOINT = os.getenv('SPACES_ENDPOINT', 'https://sfo2.digitaloceanspaces.com')
+
 LOGIN_REDIRECT_URL = '/dashboard/'
 
-# Emailer
-ACCOUNT_EMAIL_SUBJECT_PREFIX = '' # Allauth email setting
-DEFAULT_FROM_EMAIL = "Bear Blog Admin <no-reply@mg.bearblog.dev>"
-SERVER_EMAIL = "Bear Blog Admin <no-reply@mg.bearblog.dev>"
+# Email configuration - supports any SMTP provider
+ACCOUNT_EMAIL_SUBJECT_PREFIX = ''  # Allauth email setting
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Bear Blog Admin <no-reply@example.com>')
+SERVER_EMAIL = os.getenv('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.eu.mailgun.org'
-EMAIL_HOST_USER = 'postmaster@mg.bearblog.dev'
-EMAIL_HOST_PASSWORD = os.getenv('MAILGUN_PASSWORD', False)
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.mailgun.org')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', os.getenv('MAILGUN_PASSWORD', ''))
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'False').lower() == 'true'
 
 # Referrer policy
 SECURE_REFERRER_POLICY = "origin-when-cross-origin"

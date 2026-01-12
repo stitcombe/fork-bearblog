@@ -1,0 +1,42 @@
+# Caddy configuration for Bear Blog Docker deployment
+# Provides automatic HTTPS and serves static/media files directly
+
+{
+    # Email for Let's Encrypt certificates
+    email {$ACME_EMAIL:admin@example.com}
+}
+
+# Main site and all subdomains
+{$SITE_DOMAIN:localhost}, *.{$SITE_DOMAIN:localhost} {
+    # Serve static files directly from the volume
+    handle_path /static/* {
+        root * /app/staticfiles
+        file_server
+    }
+
+    # Serve media files directly from the volume
+    handle_path /media/* {
+        root * /app/media
+        file_server
+    }
+
+    # Proxy all other requests to Django/Gunicorn
+    handle {
+        reverse_proxy web:8000 {
+            # Pass original host header for subdomain resolution
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Enable gzip compression
+    encode gzip
+
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+}

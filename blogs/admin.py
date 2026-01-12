@@ -110,7 +110,7 @@ class BlogAdmin(admin.ModelAdmin):
     user_email.short_description = "Email"
 
     def display_upgraded(self, obj):
-        return obj.user.settings.upgraded
+        return obj.user.settings.is_upgraded
     display_upgraded.short_description = 'Upgraded'
     display_upgraded.boolean = True
 

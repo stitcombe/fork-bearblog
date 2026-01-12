@@ -28,6 +28,13 @@ class UserSettings(models.Model):
     dashboard_styles = models.TextField(blank=True)
     dashboard_footer = models.TextField(blank=True)
 
+    @property
+    def is_upgraded(self):
+        """In self-hosted mode, all users are considered upgraded."""
+        if os.getenv('SELF_HOSTED', 'False').lower() == 'true':
+            return True
+        return self.upgraded
+
     def __str__(self):
         return f'{self.user} - Settings'
 
@@ -142,7 +149,7 @@ class Blog(models.Model):
     @property
     def is_empty(self):
         content_length = len(self.content) if self.content is not None else 0
-        return not self.user.settings.upgraded and content_length < 20 and self.posts.count() == 0 and self.custom_styles == ""
+        return not self.user.settings.is_upgraded and content_length < 20 and self.posts.count() == 0 and self.custom_styles == ""
     
     @property
     def tags(self):
@@ -226,7 +233,7 @@ class Blog(models.Model):
         self.update_all_tags()
 
         # Upgraded blogs are auto-reviewed
-        if self.user.settings.upgraded:
+        if self.user.settings.is_upgraded:
             self.reviewed = True
         
         # Determine how dodgy the blog is if it's not reviewed
